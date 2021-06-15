@@ -1085,8 +1085,30 @@ impl SessionInner {
 
 impl Drop for SessionInner {
     fn drop(&mut self) {
-        unsafe {
-            let _rc = raw::libssh2_session_free(self.raw);
+        use log::debug;
+        use std::os::unix::io::FromRawFd;
+        // If executed in nonblocking mode, libssh2_session_free may return EAGAIN
+        // and need to be called again.
+        self.set_blocking(true);
+        loop {
+            debug!("About to attemt free of libssh2 session {:p}", self.raw);
+            let rc = unsafe { raw::libssh2_session_free(self.raw) };
+            if rc == 0 {
+                debug!("Freed libssh2 session {:p}", self.raw);
+                break;
+            } else {
+                debug!("libssh2_session_free returned {} for {:p}", rc, self.raw);
+                // Timeout or some kind of other transmission error. Drop the transport,
+                // which will hopefully cause the socket to close so we can try again
+                if let Some(tcp) = self.tcp.take() {
+                    // Very dodgy, do not commit this!
+                    debug!("shutting down socket for {:p}", self.raw);
+                    let tcp = unsafe { std::net::TcpStream::from_raw_fd(tcp.as_raw_fd()) };
+                    if let Err(e) = tcp.shutdown(std::net::Shutdown::Both) {
+                        debug!("{:p}: Error shutting down socket: {:}", self.raw, e);
+                    }
+                }
+            }
         }
     }
 }

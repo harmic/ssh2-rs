@@ -224,6 +224,7 @@ extern crate libssh2_sys as raw;
 #[macro_use]
 extern crate bitflags;
 extern crate parking_lot;
+extern crate log;
 
 use std::ffi::CStr;
 
